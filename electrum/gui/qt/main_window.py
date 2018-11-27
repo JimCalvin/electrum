@@ -352,8 +352,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             if self.config.is_dynfee():
                 self.fee_slider.update()
                 self.do_update_fee()
-            # todo: update only unconfirmed tx
-            self.history_list.update()
+            self.history_list.update_on_new_fee_histogram()
         else:
             self.print_error("unexpected network_qt signal:", event, args)
 
@@ -378,9 +377,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     def load_wallet(self, wallet):
         wallet.thread = TaskThread(self, self.on_error)
         self.update_recently_visited(wallet.storage.path)
-        # update(==init) all tabs; expensive for large wallets..
-        # so delay it somewhat, hence __init__ can finish and the window can appear sooner
-        QTimer.singleShot(50, self.update_tabs)
         self.need_update.set()
         # Once GUI has been initialized check if we want to announce something since the callback has been called before the GUI was initialized
         # update menus
