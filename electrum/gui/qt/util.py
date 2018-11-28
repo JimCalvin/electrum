@@ -5,6 +5,7 @@ import platform
 import queue
 from functools import partial
 from typing import NamedTuple, Callable, Optional
+from abc import abstractmethod
 
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -398,20 +399,17 @@ class ElectrumItemDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         return self.parent().createEditor(parent, option, index)
 
-class MyTreeWidget(QTreeWidget):
+class MyTreeWidget(QTreeView):
 
     def __init__(self, parent, create_menu, headers, stretch_column=None,
                  editable_columns=None):
-        QTreeWidget.__init__(self, parent)
+        super().__init__(parent)
         self.parent = parent
         self.config = self.parent.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
         self.setUniformRowHeights(True)
-        # extend the syntax for consistency
-        self.addChild = self.addTopLevelItem
-        self.insertChild = self.insertTopLevelItem
 
         self.icon_cache = IconCache()
 
@@ -424,16 +422,13 @@ class MyTreeWidget(QTreeWidget):
             editable_columns = set(editable_columns)
         self.editable_columns = editable_columns
         self.setItemDelegate(ElectrumItemDelegate(self))
-        self.itemDoubleClicked.connect(self.on_doubleclick)
-        self.update_headers(headers)
         self.current_filter = ""
 
         self.setRootIsDecorated(False)  # remove left margin
         self.toolbar_shown = False
 
     def update_headers(self, headers):
-        self.setColumnCount(len(headers))
-        self.setHeaderLabels(headers)
+        self.model().setHorizontalHeaderLabels(headers)
         self.header().setStretchLastSection(False)
         for col in range(len(headers)):
             sm = QHeaderView.Stretch if col == self.stretch_column else QHeaderView.ResizeToContents
@@ -452,10 +447,10 @@ class MyTreeWidget(QTreeWidget):
                 pass
 
     def keyPressEvent(self, event):
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ] and self.editor is None:
-            self.on_activated(self.currentItem(), self.currentColumn())
-        else:
-            QTreeWidget.keyPressEvent(self, event)
+        if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
+            self.on_activated(self.selectionModel().currentIndex())
+            return
+        super().keyPressEvent(event)
 
     def permit_edit(self, item, column):
         return (column in self.editable_columns
@@ -468,11 +463,8 @@ class MyTreeWidget(QTreeWidget):
         if self.permit_edit(item, column):
             self.editItem(item, column)
 
-    def on_activated(self, item, column):
-        # on 'enter' we show the menu
-        pt = self.visualItemRect(item).bottomLeft()
-        pt.setX(50)
-        self.customContextMenuRequested.emit(pt)
+    @abstractmethod
+    def on_activated(self, idx): ...
 
     def createEditor(self, parent, option, index):
         self.editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
@@ -511,40 +503,32 @@ class MyTreeWidget(QTreeWidget):
         self.parent.history_list.update_labels()
         self.parent.update_completions()
 
-    def update(self):
-        # Defer updates if editing
-        if self.editor:
-            self.pending_update = True
-        else:
-            self.setUpdatesEnabled(False)
-            scroll_pos = self.verticalScrollBar().value()
-            self.on_update()
-            self.setUpdatesEnabled(True)
-            # To paint the list before resetting the scroll position
-            self.parent.app.processEvents()
-            self.verticalScrollBar().setValue(scroll_pos)
+    def apply_filter(self):
         if self.current_filter:
             self.filter(self.current_filter)
 
-    def on_update(self):
-        pass
+    @abstractmethod
+    def should_hide(self, proxy_row): pass
 
-    def get_leaves(self, root):
-        child_count = root.childCount()
-        if child_count == 0:
-            yield root
-        for i in range(child_count):
-            item = root.child(i)
-            for x in self.get_leaves(item):
-                yield x
+    def hide_row(self, proxy_row):
+        for column in [] if not self.current_filter else self.filter_columns:
+            source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, column))
+            item = self.std_model.itemFromIndex(source_idx)
+            txt = item.text().lower()
+            if self.current_filter in txt:
+                self.setRowHidden(proxy_row, QModelIndex(), False)
+                break
+        else:
+            self.setRowHidden(proxy_row, QModelIndex(), self.should_hide(proxy_row))
 
     def filter(self, p):
-        columns = self.__class__.filter_columns
         p = p.lower()
         self.current_filter = p
-        for item in self.get_leaves(self.invisibleRootItem()):
-            item.setHidden(all([item.text(column).lower().find(p) == -1
-                                for column in columns]))
+        self.hide_rows()
+
+    def hide_rows(self):
+        for row in range(self.proxy.rowCount()):
+            self.hide_row(row)
 
     def create_toolbar(self, config=None):
         hbox = QHBoxLayout()
@@ -821,6 +805,21 @@ def get_default_language():
     name = QLocale.system().name()
     return name if name in languages else 'en_UK'
 
+class FromList(QTreeWidget):
+    def __init__(self, parent, create_menu):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setMaximumHeight(80)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(create_menu)
+        self.setUniformRowHeights(True)
+        # remove left margin
+        self.setRootIsDecorated(False)
+        self.setColumnCount(2)
+        self.header().setStretchLastSection(False)
+        sm = QHeaderView.ResizeToContents
+        self.header().setSectionResizeMode(0, sm)
+        self.header().setSectionResizeMode(1, sm)
 
 if __name__ == "__main__":
     app = QApplication([])

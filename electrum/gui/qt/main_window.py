@@ -1106,9 +1106,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
         self.from_label = QLabel(_('From'))
         grid.addWidget(self.from_label, 3, 0)
-        self.from_list = MyTreeWidget(self, self.from_list_menu, ['',''])
-        self.from_list.setHeaderHidden(True)
-        self.from_list.setMaximumHeight(80)
+        self.from_list = FromList(self, self.from_list_menu)
         grid.addWidget(self.from_list, 3, 1, 1, -1)
         self.set_pay_from([])
 

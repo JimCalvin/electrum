@@ -44,6 +44,7 @@ class ContactList(MyTreeWidget):
         MyTreeWidget.__init__(self, parent, self.create_menu, [_('Name'), _('Address')], 0, [0])
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
+        self.update()
 
     def on_permit_edit(self, item, column):
         # openalias items shouldn't be editable
@@ -55,7 +56,7 @@ class ContactList(MyTreeWidget):
         self.parent.set_contact(item.text(0), item.text(1))
 
     def import_contacts(self):
-        import_meta_gui(self.parent, _('contacts'), self.parent.contacts.import_file, self.on_update)
+        import_meta_gui(self.parent, _('contacts'), self.parent.contacts.import_file, self.update)
 
     def export_contacts(self):
         export_meta_gui(self.parent, _('contacts'), self.parent.contacts.export_file)
@@ -86,7 +87,7 @@ class ContactList(MyTreeWidget):
         run_hook('create_contact_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def on_update(self):
+    def update(self):
         item = self.currentItem()
         current_key = item.data(0, Qt.UserRole) if item else None
         self.clear()

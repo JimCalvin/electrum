@@ -35,11 +35,12 @@ class UTXOList(MyTreeWidget):
         MyTreeWidget.__init__(self, parent, self.create_menu, [ _('Address'), _('Label'), _('Amount'), _('Height'), _('Output point')], 1)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
+        self.update()
 
     def get_name(self, x):
         return x.get('prevout_hash') + ":%d"%x.get('prevout_n')
 
-    def on_update(self):
+    def update(self):
         self.wallet = self.parent.wallet
         item = self.currentItem()
         self.clear()

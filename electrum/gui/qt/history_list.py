@@ -74,37 +74,22 @@ class HistorySortModel(QSortFilterProxyModel):
         except ValueError:
             return item1 < item2
 
-class HistoryList(QTreeView, AcceptFileDragDrop):
+class HistoryList(MyTreeWidget, AcceptFileDragDrop):
     TX_HASH_ROLE = Qt.UserRole
     filter_columns = [1, 2, 3]  # Date, Description, Amount
 
-    def hide_row(self, proxy_row):
-        for column in [] if not self.current_filter else self.filter_columns:
-            source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, column))
+
+    def should_hide(self, proxy_row):
+        if self.start_timestamp and self.end_timestamp:
+            source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, 0))
             item = self.std_model.itemFromIndex(source_idx)
-            txt = item.text().lower()
-            if self.current_filter in txt:
-                self.setRowHidden(proxy_row, QModelIndex(), False)
-                break
-        else:
-            if self.start_timestamp and self.end_timestamp:
-                source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, 0))
-                item = self.std_model.itemFromIndex(source_idx)
-                txid = item.data(self.TX_HASH_ROLE)
-                date = self.transactions[txid]['date']
-                if date and not (self.start_timestamp <= date <= self.end_timestamp):
-                    self.setRowHidden(proxy_row, QModelIndex(), True)
-                    return
-            self.setRowHidden(proxy_row, QModelIndex(), False)
-
-    def filter(self, p):
-        p = p.lower()
-        self.current_filter = p
-        self.hide_rows()
-
-    def hide_rows(self):
-        for row in range(self.proxy.rowCount()):
-            self.hide_row(row)
+            txid = item.data(self.TX_HASH_ROLE)
+            date = self.transactions[txid]['date']
+            if date:
+                in_interval = self.start_timestamp <= date <= self.end_timestamp
+                if not in_interval:
+                    return True
+        return False
 
     def limit_confirmations(self, r):
         for i in r['transactions']:
@@ -112,17 +97,13 @@ class HistoryList(QTreeView, AcceptFileDragDrop):
                 i['confirmations'] = 10
 
     def __init__(self, parent=None):
-        QTreeView.__init__(self, parent)
+        super().__init__(parent, self.create_menu, [], 2)
         self.txid_to_items = {}
         self.transactions = OrderedDict()
         self.summary = {}
-        self.setUniformRowHeights(True)
-        self.current_filter = ''
         self.blue_brush = QBrush(QColor("#1E1EFF"))
         self.red_brush = QBrush(QColor("#BC1E1E"))
         self.monospace_font = QFont(MONOSPACE_FONT)
-        self.editable_columns = {2}
-        self.parent = parent
         self.default_color = self.parent.app.palette().text().color()
         self.config = parent.config
         #MyTreeWidget.__init__(self, parent, self.create_menu, [], 3)
@@ -134,19 +115,12 @@ class HistoryList(QTreeView, AcceptFileDragDrop):
         self.years = []
         self.create_toolbar_buttons()
         self.wallet = None
-        self.stretch_column = 2
 
         self.proxy = HistorySortModel(self)
         self.std_model = QStandardItemModel(self)
         self.proxy.setSourceModel(self.std_model)
         self.setModel(self.proxy)
         root = self.std_model.invisibleRootItem()
-        self.icon_cache = IconCache()
-
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.create_menu)
-
-        self.setItemDelegate(ElectrumItemDelegate(self))
 
         self.refresh_headers(update=False)
 
@@ -168,11 +142,8 @@ class HistoryList(QTreeView, AcceptFileDragDrop):
         self.sortByColumn(1, Qt.DescendingOrder)
         self.toolbar_shown = False
 
-    def keyPressEvent(self, event):
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
-            self.edit(self.selectionModel().currentIndex().siblingAtColumn(2))
-            return
-        super().keyPressEvent(event)
+    def on_activated(self, idx: QModelIndex):
+        self.edit(idx.siblingAtColumn(2))
 
     def createEditor(self, parent, option, index):
         editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
@@ -225,34 +196,6 @@ class HistoryList(QTreeView, AcceptFileDragDrop):
             self.summary.clear()
         self.std_model.setHorizontalHeaderLabels(headers)
         if grew: self.update()
-
-    def create_toolbar(self, config=None):
-        hbox = QHBoxLayout()
-        buttons = self.get_toolbar_buttons()
-        for b in buttons:
-            b.setVisible(False)
-            hbox.addWidget(b)
-        hide_button = QPushButton('x')
-        hide_button.setVisible(False)
-        hide_button.pressed.connect(lambda: self.show_toolbar(False, config))
-        self.toolbar_buttons = buttons + (hide_button,)
-        hbox.addStretch()
-        hbox.addWidget(hide_button)
-        return hbox
-
-    def show_toolbar(self, state, config=None):
-        if state == self.toolbar_shown:
-            return
-        self.toolbar_shown = state
-        if config:
-            self.save_toolbar_state(state, config)
-        for b in self.toolbar_buttons:
-            b.setVisible(state)
-        if not state:
-            self.on_hide_toolbar()
-
-    def toggle_toolbar(self, config=None):
-        self.show_toolbar(not self.toolbar_shown, config)
 
     def get_domain(self):
         '''Replaced in address_dialog.py'''
@@ -527,7 +470,7 @@ class HistoryList(QTreeView, AcceptFileDragDrop):
 
     def on_doubleclick(self, item, column):
         if self.permit_edit(item, column):
-            super(HistoryList, self).on_doubleclick(item, column)
+            super().on_doubleclick(item, column)
         else:
             tx_hash = item.data(0, self.TX_HASH_ROLE)
             self.show_transaction(tx_hash)

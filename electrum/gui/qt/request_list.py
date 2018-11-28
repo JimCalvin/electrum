@@ -23,9 +23,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import QTreeWidgetItem, QMenu
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtWidgets import QMenu
 
 from electrum.i18n import _
 from electrum.util import format_time, age
@@ -34,6 +33,8 @@ from electrum.paymentrequest import PR_UNKNOWN
 
 from .util import MyTreeWidget, pr_tooltips, pr_icons
 
+class RequestListModel(QStandardItemModel):
+    pass
 
 class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Address, Description, Amount
@@ -41,11 +42,12 @@ class RequestList(MyTreeWidget):
 
     def __init__(self, parent):
         MyTreeWidget.__init__(self, parent, self.create_menu, [_('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
-        self.currentItemChanged.connect(self.item_changed)
-        self.itemClicked.connect(self.item_changed)
+        self.setModel(RequestListModel())
+        self.selectionModel().currentRowChanged.connect(self.item_changed)
         self.setSortingEnabled(True)
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
+        self.update()
 
     def item_changed(self, item):
         if item is None:
@@ -68,7 +70,7 @@ class RequestList(MyTreeWidget):
         self.parent.expires_label.setText(expires)
         self.parent.new_request_button.setEnabled(True)
 
-    def on_update(self):
+    def update(self):
         self.wallet = self.parent.wallet
         # hide receive tab if no receive requests available
         b = len(self.wallet.receive_requests) > 0
@@ -86,8 +88,7 @@ class RequestList(MyTreeWidget):
             self.parent.set_receive_address(addr)
         self.parent.new_request_button.setEnabled(addr != current_address)
 
-        # clear the list and fill it again
-        self.clear()
+        model = QStandardItemModel()
         for req in self.wallet.get_sorted_requests(self.config):
             address = req['address']
             if address not in domain:
@@ -101,13 +102,15 @@ class RequestList(MyTreeWidget):
             signature = req.get('sig')
             requestor = req.get('name', '')
             amount_str = self.parent.format_amount(amount) if amount else ""
-            item = QTreeWidgetItem([date, address, '', message, amount_str, pr_tooltips.get(status,'')])
+            labels = [date, address, '', message, amount_str, pr_tooltips.get(status,'')]
+            item = [QStandardItem(e) for e in labels]
             if signature is not None:
                 item.setIcon(2, self.icon_cache.get(":icons/seal.png"))
                 item.setToolTip(2, 'signed by '+ requestor)
             if status is not PR_UNKNOWN:
                 item.setIcon(6, self.icon_cache.get(pr_icons.get(status)))
-            self.addTopLevelItem(item)
+            model.insertRow(model.rowCount(), item)
+        self.setModel(model)
 
 
     def create_menu(self, position):
