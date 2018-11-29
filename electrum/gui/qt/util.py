@@ -427,6 +427,9 @@ class MyTreeWidget(QTreeView):
         self.setRootIsDecorated(False)  # remove left margin
         self.toolbar_shown = False
 
+    def currentItem(self):
+        self.model().itemFromIndex(self.selectionModel().currentIndex())
+
     def update_headers(self, headers):
         self.model().setHorizontalHeaderLabels(headers)
         self.header().setStretchLastSection(False)

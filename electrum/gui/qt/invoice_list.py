@@ -57,7 +57,7 @@ class InvoiceList(MyTreeWidget):
             item[1].setFont(QFont(MONOSPACE_FONT))
             item[3].setFont(QFont(MONOSPACE_FONT))
             self.addTopLevelItem(item)
-        self.selectionModel().select(self.model().index(0,0), QItemSelectionModel.Current)
+        self.selectionModel().select(self.model().index(0,0), QItemSelectionModel.SelectCurrent)
         self.setVisible(len(inv_list))
         self.parent.invoices_label.setVisible(len(inv_list))
 

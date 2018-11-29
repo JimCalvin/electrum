@@ -27,6 +27,24 @@ from electrum.i18n import _
 
 from .util import *
 
+class UTXOListModel(QStandardItemModel):
+    def __init__(self, utxos):
+        super().__init__(self)
+        for idx, x in enumerate(utxos):
+            address = x.get('address')
+            height = x.get('height')
+            name = self.get_name(x)
+            label = self.wallet.get_label(x.get('prevout_hash'))
+            amount = self.parent.format_amount(x['value'], whitespaces=True)
+            labels = [address, label, amount, '%d'%height, name[0:10] + '...' + name[-2:]]
+            utxo_item = [QStandardItem(x) for x in labels]
+            utxo_item.setFont(0, QFont(MONOSPACE_FONT))
+            utxo_item.setFont(2, QFont(MONOSPACE_FONT))
+            utxo_item.setFont(4, QFont(MONOSPACE_FONT))
+            utxo_item.setData(0, Qt.UserRole, name)
+            if self.wallet.is_frozen(address):
+                utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
+            self.insertRow(idx, utxo_item)
 
 class UTXOList(MyTreeWidget):
     filter_columns = [0, 2]  # Address, Label
@@ -35,6 +53,7 @@ class UTXOList(MyTreeWidget):
         MyTreeWidget.__init__(self, parent, self.create_menu, [ _('Address'), _('Label'), _('Amount'), _('Height'), _('Output point')], 1)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
+        self.setModel(UTXOListModel())
         self.update()
 
     def get_name(self, x):
@@ -42,30 +61,15 @@ class UTXOList(MyTreeWidget):
 
     def update(self):
         self.wallet = self.parent.wallet
-        item = self.currentItem()
-        self.clear()
-        self.utxos = self.wallet.get_utxos()
-        for x in self.utxos:
-            address = x.get('address')
-            height = x.get('height')
-            name = self.get_name(x)
-            label = self.wallet.get_label(x.get('prevout_hash'))
-            amount = self.parent.format_amount(x['value'], whitespaces=True)
-            utxo_item = SortableTreeWidgetItem([address, label, amount, '%d'%height, name[0:10] + '...' + name[-2:]])
-            utxo_item.setFont(0, QFont(MONOSPACE_FONT))
-            utxo_item.setFont(2, QFont(MONOSPACE_FONT))
-            utxo_item.setFont(4, QFont(MONOSPACE_FONT))
-            utxo_item.setData(0, Qt.UserRole, name)
-            if self.wallet.is_frozen(address):
-                utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
-            self.addChild(utxo_item)
+        model = UTXOListModel(self.wallet.get_utxos())
+        self.setModel(model)
 
     def create_menu(self, position):
         selected = [x.data(0, Qt.UserRole) for x in self.selectedItems()]
         if not selected:
             return
         menu = QMenu()
-        coins = filter(lambda x: self.get_name(x) in selected, self.utxos)
+        coins = filter(lambda x: self.get_name(x) in selected, self.model().utxos)
 
         menu.addAction(_("Spend"), lambda: self.parent.spend_coins(coins))
         if len(selected) == 1:

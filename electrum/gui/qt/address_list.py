@@ -88,7 +88,7 @@ class AddressList(MyTreeWidget):
 
     def update(self):
         self.wallet = self.parent.wallet
-        item = self.model().itemFromIndex(self.selectionModel().currentIndex())
+        item = self.currentItem()
         current_address = item.siblingAtColumn(0).data(Qt.UserRole) if item else None
         if self.show_change == 1:
             addr_list = self.wallet.get_receiving_addresses()
