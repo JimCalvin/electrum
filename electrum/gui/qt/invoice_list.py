@@ -33,17 +33,17 @@ class InvoiceList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3]  # Date, Requestor, Description, Amount
 
     def __init__(self, parent):
-        MyTreeWidget.__init__(self, parent, self.create_menu, [_('Expires'), _('Requestor'), _('Description'), _('Amount'), _('Status')], 2)
+        super().__init__(parent, self.create_menu, 2)
+        self.update()
+        self.update_headers([_('Expires'), _('Requestor'), _('Description'), _('Amount'), _('Status')])
         self.setSortingEnabled(True)
         #TODO re-enable
         #self.header().setSectionResizeMode(1, QHeaderView.Interactive)
         self.setColumnWidth(1, 200)
-        self.update()
 
     def update(self):
         inv_list = self.parent.invoices.unpaid_invoices()
         model = QStandardItemModel()
-        self.setModel(model)
         for pr in inv_list:
             key = pr.get_id()
             status = self.parent.invoices.get_status(key)
@@ -57,6 +57,7 @@ class InvoiceList(MyTreeWidget):
             item[1].setFont(QFont(MONOSPACE_FONT))
             item[3].setFont(QFont(MONOSPACE_FONT))
             self.addTopLevelItem(item)
+        self.setModel(model)
         self.selectionModel().select(self.model().index(0,0), QItemSelectionModel.SelectCurrent)
         self.setVisible(len(inv_list))
         self.parent.invoices_label.setVisible(len(inv_list))

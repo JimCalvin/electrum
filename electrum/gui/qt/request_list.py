@@ -33,28 +33,22 @@ from electrum.paymentrequest import PR_UNKNOWN
 
 from .util import MyTreeWidget, pr_tooltips, pr_icons
 
-class RequestListModel(QStandardItemModel):
-    pass
-
 class RequestList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Address, Description, Amount
 
 
     def __init__(self, parent):
-        MyTreeWidget.__init__(self, parent, self.create_menu, [_('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')], 3)
-        self.setModel(RequestListModel())
-        self.selectionModel().currentRowChanged.connect(self.item_changed)
+        super().__init__(parent, self.create_menu, 3)
+        self.setModel(QStandardItemModel())
+        self.update_headers([_('Date'), _('Address'), '', _('Description'), _('Amount'), _('Status')])
         self.setSortingEnabled(True)
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
         self.update()
+        self.selectionModel().currentRowChanged.connect(self.item_changed)
 
-    def item_changed(self, item):
-        if item is None:
-            return
-        if not item.isSelected():
-            return
-        addr = str(item.text(1))
+    def item_changed(self, idx):
+        addr = self.model().itemFromIndex(idx.siblingAtColumn(1)).text()
         req = self.wallet.receive_requests.get(addr)
         if req is None:
             self.update()
@@ -88,7 +82,7 @@ class RequestList(MyTreeWidget):
             self.parent.set_receive_address(addr)
         self.parent.new_request_button.setEnabled(addr != current_address)
 
-        model = QStandardItemModel()
+        self.model().clear()
         for req in self.wallet.get_sorted_requests(self.config):
             address = req['address']
             if address not in domain:
@@ -104,20 +98,21 @@ class RequestList(MyTreeWidget):
             amount_str = self.parent.format_amount(amount) if amount else ""
             labels = [date, address, '', message, amount_str, pr_tooltips.get(status,'')]
             item = [QStandardItem(e) for e in labels]
+            for idx, i in enumerate(item):
+                i.setEditable(idx in self.editable_columns)
             if signature is not None:
                 item.setIcon(2, self.icon_cache.get(":icons/seal.png"))
                 item.setToolTip(2, 'signed by '+ requestor)
             if status is not PR_UNKNOWN:
                 item.setIcon(6, self.icon_cache.get(pr_icons.get(status)))
-            model.insertRow(model.rowCount(), item)
-        self.setModel(model)
+            self.model().insertRow(self.model().rowCount(), item)
 
 
     def create_menu(self, position):
-        item = self.itemAt(position)
+        item = self.model().itemFromIndex(self.indexAt(position).siblingAtColumn(1))
         if not item:
             return
-        addr = str(item.text(1))
+        addr = item.text()
         req = self.wallet.receive_requests.get(addr)
         if req is None:
             self.update()

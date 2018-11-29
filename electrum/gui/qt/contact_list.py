@@ -41,14 +41,12 @@ class ContactList(MyTreeWidget):
     filter_columns = [0, 1]  # Key, Value
 
     def __init__(self, parent):
-        MyTreeWidget.__init__(self, parent, self.create_menu, [_('Name'), _('Address')], 0, [0])
+        super().__init__(parent, self.create_menu, stretch_column=0, editable_columns=[0])
+        self.setModel(QStandardItemModel())
+        self.update_headers([_('Name'), _('Address')])
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
         self.update()
-
-    def on_permit_edit(self, item, column):
-        # openalias items shouldn't be editable
-        return item.text(1) != "openalias"
 
     def on_edited(self, item, column, prior):
         if column == 0:  # Remove old contact if renamed
@@ -88,14 +86,16 @@ class ContactList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def update(self):
-        item = self.currentItem()
-        current_key = item.data(0, Qt.UserRole) if item else None
-        self.clear()
+        current_key = self.current_item() if self.current_item() else None
+        self.model().clear()
+        set_current = None
         for key in sorted(self.parent.contacts.keys()):
             _type, name = self.parent.contacts[key]
             item = QTreeWidgetItem([name, key])
+            item[1].setEditable(key != 'openalias')
             item.setData(0, Qt.UserRole, key)
             self.addTopLevelItem(item)
             if key == current_key:
-                self.setCurrentItem(item)
+                set_current = QPersistentModelIndex(item)
+        self.set_and_current(set_current)
         run_hook('update_contacts_tab', self)

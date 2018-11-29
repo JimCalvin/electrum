@@ -31,16 +31,11 @@ from electrum.bitcoin import is_address
 
 from .util import *
 
-class AddressListModel(QStandardItemModel):
-    pass
-
 class AddressList(MyTreeWidget):
     filter_columns = [0, 1, 2, 3]  # Type, Address, Label, Balance
 
     def __init__(self, parent=None):
-        MyTreeWidget.__init__(self, parent, self.create_menu, [], 2)
-        self.setModel(AddressListModel())
-        self.refresh_headers()
+        super().__init__(parent, self.create_menu, 2)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
         self.show_change = 0
@@ -53,7 +48,9 @@ class AddressList(MyTreeWidget):
         self.used_button.currentIndexChanged.connect(self.toggle_used)
         for t in [_('All'), _('Unused'), _('Funded'), _('Used')]:
             self.used_button.addItem(t)
+        self.setModel(QStandardItemModel())
         self.update()
+        self.refresh_headers()
 
     def get_toolbar_buttons(self):
         return QLabel(_("Filter:")), self.change_button, self.used_button
@@ -88,16 +85,16 @@ class AddressList(MyTreeWidget):
 
     def update(self):
         self.wallet = self.parent.wallet
-        item = self.currentItem()
-        current_address = item.siblingAtColumn(0).data(Qt.UserRole) if item else None
+        current_address = self.current_item().data(Qt.UserRole) if self.current_item() else None
         if self.show_change == 1:
             addr_list = self.wallet.get_receiving_addresses()
         elif self.show_change == 2:
             addr_list = self.wallet.get_change_addresses()
         else:
             addr_list = self.wallet.get_addresses()
-        model = QStandardItemModel()
+        self.model().clear()
         fx = self.parent.fx
+        set_address = None
         for address in addr_list:
             num = self.wallet.get_address_history_len(address)
             label = self.wallet.labels.get(address, '')
@@ -121,10 +118,11 @@ class AddressList(MyTreeWidget):
                 labels = ['', address, label, balance_text, "%d"%num]
                 address_item = [QStandardItem(e) for e in labels]
             # align text and set fonts
-            for i in range(len(address_item)):
-                address_item[i].setTextAlignment(Qt.AlignVCenter)
+            for i, item in enumerate(address_item):
+                item.setTextAlignment(Qt.AlignVCenter)
                 if i not in (0, 2):
-                    address_item[i].setFont(QFont(MONOSPACE_FONT))
+                    item.setFont(QFont(MONOSPACE_FONT))
+                item.setEditable(i in self.editable_columns)
             if fx and fx.get_fiat_address_config():
                 address_item[4].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             # setup column 0
@@ -141,20 +139,22 @@ class AddressList(MyTreeWidget):
             if self.wallet.is_beyond_limit(address):
                 address_item[1].setBackground(ColorScheme.RED.as_color(True))
             # add item
-            count = model.rowCount()
+            count = self.model().rowCount()
             self.model().insertRow(count, address_item)
-            address_idx = model.index(count, 0)
+            address_idx = self.model().index(count, 0)
             if address == current_address:
-                self.selectionModel().select(address_idx, QItemSelectionFlag.SelectCurrent)
+                set_address = QPersistentModelIndex(address_idx)
+        self.set_and_current(set_address)
 
     def create_menu(self, position):
         from electrum.wallet import Multisig_Wallet
         is_multisig = isinstance(self.wallet, Multisig_Wallet)
         can_delete = self.wallet.can_delete_address()
-        selected = self.selectedItems()
+        selected = [qidx for qidx in self.selectionModel().selectedIndexes() if qidx.row() == 1]
         multi_select = len(selected) > 1
-        addrs = [item.text(1) for item in selected]
+        addrs = [self.model().itemFromIndex(item).text() for item in selected]
         if not addrs:
+            print('no addrs')
             return
         if not multi_select:
             item = self.itemAt(position)

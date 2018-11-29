@@ -4,7 +4,7 @@ import sys
 import platform
 import queue
 from functools import partial
-from typing import NamedTuple, Callable, Optional
+from typing import NamedTuple, Callable, Optional, Iterable
 from abc import abstractmethod
 
 from PyQt5.QtGui import *
@@ -401,8 +401,7 @@ class ElectrumItemDelegate(QStyledItemDelegate):
 
 class MyTreeWidget(QTreeView):
 
-    def __init__(self, parent, create_menu, headers, stretch_column=None,
-                 editable_columns=None):
+    def __init__(self, parent, create_menu, stretch_column=None, editable_columns=None):
         super().__init__(parent)
         self.parent = parent
         self.config = self.parent.config
@@ -427,27 +426,35 @@ class MyTreeWidget(QTreeView):
         self.setRootIsDecorated(False)  # remove left margin
         self.toolbar_shown = False
 
-    def currentItem(self):
-        self.model().itemFromIndex(self.selectionModel().currentIndex())
+    def selected_column_0_user_roles(self) -> Optional[Iterable[str]]:
+        if not self.model():
+            return None
+        items = self.selectionModel().selectedIndexes()
+        if not item:
+            return None
+        for x in items:
+            if isinstance(self, QSortFilterProxyModel):
+                yield self.mapToSource(x).siblingAtColumn(0).data(Qt.UserRole)
+            else:
+                yield x.data(Qt.UserRole)
 
-    def update_headers(self, headers):
-        self.model().setHorizontalHeaderLabels(headers)
+    def current_item(self) -> Optional[QStandardItem]:
+        idx = self.selectionModel().currentIndex()
+        return self.model().itemFromIndex(idx)
+
+    def set_and_current(self, set_current: QPersistentModelIndex):
+        if set_current:
+            assert set_current.isValid()
+            self.selectionModel().select(set_current, QItemSelectionModel.SelectCurrent)
+
+    def update_headers(self, headers, model=None):
+        if model is None:
+            model = self.model()
+        model.setHorizontalHeaderLabels(headers)
         self.header().setStretchLastSection(False)
         for col in range(len(headers)):
             sm = QHeaderView.Stretch if col == self.stretch_column else QHeaderView.ResizeToContents
             self.header().setSectionResizeMode(col, sm)
-
-    def editItem(self, item, column):
-        if column in self.editable_columns:
-            try:
-                self.editing_itemcol = (item, column, item.text(column))
-                # Calling setFlags causes on_changed events for some reason
-                item.setFlags(item.flags() | Qt.ItemIsEditable)
-                QTreeWidget.editItem(self, item, column)
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-            except RuntimeError:
-                # (item) wrapped C/C++ object has been deleted
-                pass
 
     def keyPressEvent(self, event):
         if event.key() in [ Qt.Key_F2, Qt.Key_Return ]:
@@ -455,53 +462,22 @@ class MyTreeWidget(QTreeView):
             return
         super().keyPressEvent(event)
 
-    def permit_edit(self, item, column):
-        return (column in self.editable_columns
-                and self.on_permit_edit(item, column))
-
-    def on_permit_edit(self, item, column):
-        return True
-
-    def on_doubleclick(self, item, column):
-        if self.permit_edit(item, column):
-            self.editItem(item, column)
-
     @abstractmethod
     def on_activated(self, idx): ...
 
     def createEditor(self, parent, option, index):
         self.editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
                                                        parent, option, index)
-        self.editor.editingFinished.connect(self.editing_finished)
+        self.editor.editingFinished.connect(partial(self.on_edited, index))
         return self.editor
 
-    def editing_finished(self):
-        # Long-time QT bug - pressing Enter to finish editing signals
-        # editingFinished twice.  If the item changed the sequence is
-        # Enter key:  editingFinished, on_change, editingFinished
-        # Mouse: on_change, editingFinished
-        # This mess is the cleanest way to ensure we make the
-        # on_edited callback with the updated item
-        if self.editor:
-            (item, column, prior_text) = self.editing_itemcol
-            if self.editor.text() == prior_text:
-                self.editor = None  # Unchanged - ignore any 2nd call
-            elif item.text(column) == prior_text:
-                pass # Buggy first call on Enter key, item not yet updated
-            else:
-                # What we want - the updated item
-                self.on_edited(*self.editing_itemcol)
-                self.editor = None
-
-            # Now do any pending updates
-            if self.editor is None and self.pending_update:
-                self.pending_update = False
-                self.on_update()
-
-    def on_edited(self, item, column, prior):
+    def on_edited(self, idx: QModelIndex):
         '''Called only when the text actually changes'''
-        key = item.data(0, Qt.UserRole)
-        text = item.text(column)
+        m = self.model()
+        idx0 = idx.siblingAtColumn(0)
+        item0 = m.itemFromIndex(idx0)
+        key = item0.data(Qt.UserRole)
+        text = m.itemFromIndex(idx).text()
         self.parent.wallet.set_label(key, text)
         self.parent.history_list.update_labels()
         self.parent.update_completions()
@@ -511,18 +487,30 @@ class MyTreeWidget(QTreeView):
             self.filter(self.current_filter)
 
     @abstractmethod
-    def should_hide(self, proxy_row): pass
+    def should_hide(self, row):
+        """
+        row_num is for self.model(). So if there is a proxy, it is the row number
+        in that!
+        """
+        pass
 
-    def hide_row(self, proxy_row):
+    def hide_row(self, row_num):
+        """
+        row_num is for self.model(). So if there is a proxy, it is the row number
+        in that!
+        """
         for column in [] if not self.current_filter else self.filter_columns:
-            source_idx = self.proxy.mapToSource(self.proxy.index(proxy_row, column))
-            item = self.std_model.itemFromIndex(source_idx)
+            if self.proxy:
+                idx = self.proxy.mapToSource(self.proxy.index(row_num, column))
+            else:
+                idx = self.model().index(row_num, column)
+            item = self.std_model.itemFromIndex(idx)
             txt = item.text().lower()
             if self.current_filter in txt:
-                self.setRowHidden(proxy_row, QModelIndex(), False)
+                self.setRowHidden(row_num, QModelIndex(), False)
                 break
         else:
-            self.setRowHidden(proxy_row, QModelIndex(), self.should_hide(proxy_row))
+            self.setRowHidden(row_num, QModelIndex(), self.should_hide(row_num))
 
     def filter(self, p):
         p = p.lower()
@@ -530,7 +518,7 @@ class MyTreeWidget(QTreeView):
         self.hide_rows()
 
     def hide_rows(self):
-        for row in range(self.proxy.rowCount()):
+        for row in range(self.model().rowCount()):
             self.hide_row(row)
 
     def create_toolbar(self, config=None):

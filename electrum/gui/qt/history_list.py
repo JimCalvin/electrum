@@ -97,7 +97,13 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
                 i['confirmations'] = 10
 
     def __init__(self, parent=None):
-        super().__init__(parent, self.create_menu, [], 2)
+        # self.update_headers needs self.std_model, and is called from MyTreeView.__init__
+        super().__init__(parent, self.create_menu, 2)
+        self.std_model = QStandardItemModel(self)
+        self.proxy = HistorySortModel(self)
+        self.proxy.setSourceModel(self.std_model)
+        self.setModel(self.proxy)
+
         self.txid_to_items = {}
         self.transactions = OrderedDict()
         self.summary = {}
@@ -116,13 +122,7 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
         self.create_toolbar_buttons()
         self.wallet = None
 
-        self.proxy = HistorySortModel(self)
-        self.std_model = QStandardItemModel(self)
-        self.proxy.setSourceModel(self.std_model)
-        self.setModel(self.proxy)
         root = self.std_model.invisibleRootItem()
-
-        self.refresh_headers(update=False)
 
         self.wallet = self.parent.wallet  # type: Abstract_Wallet
         fx = self.parent.fx
@@ -136,25 +136,19 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
             self.years = [str(i) for i in range(start_date.year, end_date.year + 1)]
             self.period_combo.insertItems(1, self.years)
         if fx: fx.history_used_spot = False
+        self.refresh_headers()
         for tx_item in self.transactions.values():
             self.insert_tx(tx_item)
 
         self.sortByColumn(1, Qt.DescendingOrder)
-        self.toolbar_shown = False
 
     def on_activated(self, idx: QModelIndex):
         self.edit(idx.siblingAtColumn(2))
 
-    def createEditor(self, parent, option, index):
-        editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
-                                                       parent, option, index)
-        editor.editingFinished.connect(partial(self.on_edited, index))
-        return editor
-
     def format_date(self, d):
         return str(datetime.date(d.year, d.month, d.day)) if d else _('None')
 
-    def refresh_headers(self, update=True):
+    def refresh_headers(self):
         headers = ['', _('Date'), _('Description'), _('Amount'), _('Balance')]
         fx = self.parent.fx
         if fx and fx.show_history():
@@ -165,17 +159,6 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
                 headers.extend(['%s '%fx.ccy + _('Capital Gains')])
         else:
             self.editable_columns -= {5}
-        if update:
-            self.update_headers(headers)
-        else:
-            self.std_model.setHorizontalHeaderLabels(headers)
-        self.header().setStretchLastSection(False)
-        for col in range(len(headers)):
-            sm = QHeaderView.Stretch if col == self.stretch_column else QHeaderView.ResizeToContents
-            self.header().setSectionResizeMode(col, sm)
-
-    @profiler
-    def update_headers(self, headers):
         col_count = self.std_model.columnCount()
         diff = col_count-len(headers)
         grew = False
@@ -194,8 +177,7 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
             self.txid_to_items.clear()
             self.transactions.clear()
             self.summary.clear()
-        self.std_model.setHorizontalHeaderLabels(headers)
-        if grew: self.update()
+        self.update_headers(headers, self.std_model)
 
     def get_domain(self):
         '''Replaced in address_dialog.py'''
@@ -363,8 +345,7 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
             item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if i!=1:
             item.setFont(self.monospace_font)
-        if i not in self.editable_columns:
-            item.setEditable(False)
+        item.setEditable(i in self.editable_columns)
         item.setData(tx_hash, self.TX_HASH_ROLE)
 
     def ensure(self, items, idx, txid):
